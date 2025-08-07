@@ -1,0 +1,1 @@
+Great! that works like a charm! Next, there is an issue that needs to be fixed: When trying to edit an entry in the selected tile panel, mouse inputs to the ui window still trigger mouse inputs to the level. This is undesired behaviour. Maybe keep trackof which window is focused right now?
