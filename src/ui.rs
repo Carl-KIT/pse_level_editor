@@ -1,15 +1,18 @@
 use crate::editor::LevelEditor;
 use crate::tile::TileType;
 use crate::brush::BrushType;
+use crate::theme::Theme;
 use egui_macroquad::egui;
 
 pub struct UI;
 
 impl UI {
-    pub fn draw_all(editor: &mut LevelEditor, egui_ctx: &egui::Context) {
+    pub fn draw_all(editor: &mut LevelEditor, egui_ctx: &egui::Context, theme: &Theme) {
         // Draw menu bar
         egui::TopBottomPanel::top("menu_bar").show(egui_ctx, |ui| {
             ui.horizontal(|ui| {
+                // Apply custom styling to buttons to ensure proper text color
+
                 if ui.button("Tile Selector").clicked() {
                     let current_state = editor.show_tile_selector();
                     editor.set_show_tile_selector(!current_state);
@@ -17,7 +20,7 @@ impl UI {
                 
                 ui.separator();
                 
-                // Undo/Redo buttons
+                // Undo/Redo buttons with proper text color
                 ui.add_enabled_ui(editor.can_undo(), |ui| {
                     if ui.button("Undo (Ctrl+Z)").clicked() {
                         editor.undo();
@@ -45,15 +48,10 @@ impl UI {
                         let is_selected = editor.selected_tile() == tile_type;
                         
                         ui.horizontal(|ui| {
-                            // Color preview
-                            let color = tile_type.color();
-                            let egui_color = egui::Color32::from_rgb(
-                                (color.r * 255.0) as u8,
-                                (color.g * 255.0) as u8,
-                                (color.b * 255.0) as u8,
-                            );
+                            // Color preview using theme colors
+                            let color = theme.tile_color(tile_type);
                             
-                            ui.colored_label(egui_color, "■");
+                            ui.colored_label(color, "■");
                             
                             // Tile name and selection
                             if ui.selectable_label(is_selected, tile_type.name()).clicked() {
@@ -75,28 +73,7 @@ impl UI {
                         if ui.selectable_label(is_selected, brush_type.name()).clicked() {
                             editor.set_brush_type(brush_type);
                         }
-                    }
-                    
-                    ui.separator();
-                    ui.label(format!("Brush: {}", editor.brush_type().name()));
-                    
-                    // Show brush instructions
-                    ui.separator();
-                    ui.heading("Instructions");
-                    match editor.brush_type() {
-                        BrushType::Single => {
-                            ui.label("• Click and drag to place tiles");
-                        },
-                        BrushType::Fill => {
-                            ui.label("• Click and drag to create fill area");
-                            ui.label("• Right-click to cancel");
-                            ui.label("• Release to apply fill");
-                        },
-                        BrushType::Selector => {
-                            ui.label("• Click to select a tile");
-                            ui.label("• Edit tile attributes in inspector");
-                        },
-                    }
+                    }                    
                 });
         }
 
@@ -105,7 +82,7 @@ impl UI {
             let coords = editor.get_selected_tile_coords();
             let tile_type = tile.tile_type;
             let tile_name = tile.name.clone();
-            let tile_color = tile.color();
+            let tile_color = theme.tile_color(tile.tile_type);
             
             egui::SidePanel::right("tile_inspector_panel")
                 .resizable(true)
@@ -132,23 +109,20 @@ impl UI {
                     
                     ui.separator();
                     
-                    // Tile name editing
+                    // Tile name editing with proper styling
                     ui.label("Name:");
                     let mut name = tile_name;
-                    if ui.text_edit_singleline(&mut name).changed() {
+                    let text_edit = egui::TextEdit::singleline(&mut name)
+                        .text_color(theme.text_primary);
+                    if ui.add(text_edit).changed() {
                         editor.update_selected_tile_name(name);
                     }
                     
                     ui.separator();
                     
-                    // Color preview
+                    // Color preview using theme colors
                     ui.label("Color Preview:");
-                    let egui_color = egui::Color32::from_rgb(
-                        (tile_color.r * 255.0) as u8,
-                        (tile_color.g * 255.0) as u8,
-                        (tile_color.b * 255.0) as u8,
-                    );
-                    ui.colored_label(egui_color, "■");
+                    ui.colored_label(tile_color, "■");
                 });
         }
     }

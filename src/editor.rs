@@ -145,11 +145,11 @@ impl LevelEditor {
         self.camera.setup_camera();
     }
 
-    pub fn draw_level(&self) {
-        self.level.draw();
+    pub fn draw_level(&self, theme: &crate::theme::Theme) {
+        self.level.draw(theme);
         // Draw selection indicator if a tile is selected
         if self.brush_manager.brush_type == BrushType::Selector {
-            self.level.draw_selection_indicator(self.get_selected_tile_coords());
+            self.level.draw_selection_indicator(self.get_selected_tile_coords(), theme);
         }
     }
 

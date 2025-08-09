@@ -140,20 +140,20 @@ impl Level {
         self.height
     }
 
-    pub fn draw(&self) {
+    pub fn draw(&self, theme: &crate::theme::Theme) {
         // Draw the base level
         for y in 0..self.height {
             for x in 0..self.width {
                 let tile = &self.tiles[y][x];
-                let color = tile.color();
+                let color = theme.tile_color(tile.tile_type);
                 let rect = Rect::new(
                     x as f32 * TILE_SIZE,
                     y as f32 * TILE_SIZE,
                     TILE_SIZE,
                     TILE_SIZE,
                 );
-                draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
-                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, GRID_LINE_WIDTH, BLACK);
+                draw_rectangle(rect.x, rect.y, rect.w, rect.h, theme.to_macroquad_color(color));
+                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, GRID_LINE_WIDTH, theme.to_macroquad_color(theme.grid_line));
             }
         }
 
@@ -165,11 +165,11 @@ impl Level {
                 TILE_SIZE,
                 TILE_SIZE,
             );
-            draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::new(1.0, 1.0, 0.0, 0.5)); // Semi-transparent yellow
+            draw_rectangle(rect.x, rect.y, rect.w, rect.h, theme.to_macroquad_color(theme.highlight));
         }
     }
 
-    pub fn draw_selection_indicator(&self, selected_coords: Option<(usize, usize)>) {
+    pub fn draw_selection_indicator(&self, selected_coords: Option<(usize, usize)>, theme: &crate::theme::Theme) {
         if let Some((x, y)) = selected_coords {
             if x < self.width && y < self.height {
                 let rect = Rect::new(
@@ -178,8 +178,8 @@ impl Level {
                     TILE_SIZE,
                     TILE_SIZE,
                 );
-                // Draw a red selection border
-                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 0.1, RED);
+                // Draw a selection border using theme color
+                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 0.1, theme.to_macroquad_color(theme.selection));
             }
         }
     }
