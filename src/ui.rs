@@ -1,6 +1,6 @@
 use crate::editor::LevelEditor;
-use crate::tile::TileType;
-use crate::brush::BrushType;
+use crate::tile::{TileType, SelectableMeta};
+use crate::editor::BrushType;
 use egui_macroquad::egui;
 
 pub struct UI;
@@ -32,70 +32,110 @@ impl UI {
             });
         });
 
-        // Draw tile selector panel
-        if editor.show_tile_selector() {
+        // Draw tile selector panel, hidden when Structure brush is active
+        if editor.show_tile_selector() && !matches!(editor.brush_type(), BrushType::Structure) {
             egui::SidePanel::left("tile_selector_panel")
                 .resizable(true)
                 .default_width(200.0)
                 .show(egui_ctx, |ui| {
                     ui.heading("Select Tile");
                     ui.separator();
-                    
-                    for tile_type in [TileType::Air, TileType::Grass, TileType::Ground] {
-                        let is_selected = editor.selected_tile() == tile_type;
-                        
-                        ui.horizontal(|ui| {
-                            // Color preview
-                            let color = tile_type.color();
-                            let egui_color = egui::Color32::from_rgb(
-                                (color.r * 255.0) as u8,
-                                (color.g * 255.0) as u8,
-                                (color.b * 255.0) as u8,
-                            );
-                            
-                            ui.colored_label(egui_color, "■");
-                            
-                            // Tile name and selection
-                            if ui.selectable_label(is_selected, tile_type.name()).clicked() {
-                                editor.set_selected_tile(tile_type);
+                    // Dynamic list from registry with folder-like grouping
+                    let selected_type = editor.selected_tile();
+                    let mut enemies: Vec<(String, String)> = Vec::new();
+                    let mut tiles_all: Vec<(String, String)> = Vec::new();
+                    let mut others: Vec<(String, String)> = Vec::new();
+
+                    for kind in editor.registry().kinds().iter() {
+                        if kind.key == "air" { continue; }
+                        let key_l = kind.key.to_lowercase();
+                        let item = (kind.key.clone(), kind.display_name.clone());
+                        if key_l.contains("pig") || key_l.contains("snail") || key_l.contains("bird") ||
+                           ((key_l.contains("bear") && key_l.contains("trap")) || key_l.contains("beartrap")) {
+                            enemies.push(item);
+                        } else if key_l.contains("powerup") || key_l.contains("ground") || key_l.contains("wall") {
+                            tiles_all.push(item);
+                        } else {
+                            others.push(item);
+                        }
+                    }
+
+                    ui.vertical(|ui| {
+                        egui::CollapsingHeader::new("Enemies").default_open(true).show(ui, |ui| {
+                            for (key, display_name) in &enemies {
+                                let is_selected = match &selected_type { TileType::Air => false, TileType::Custom(k) => k == key };
+                                if ui.selectable_label(is_selected, display_name).clicked() {
+                                    editor.set_selected_tile(TileType::Custom(key.clone()));
+                                }
                             }
                         });
-                    }
-                    
-                    ui.separator();
-                    ui.label(format!("Selected: {}", editor.selected_tile().name()));
+
+                        egui::CollapsingHeader::new("Tiles").default_open(true).show(ui, |ui| {
+                            for (key, display_name) in &tiles_all {
+                                let is_selected = match &selected_type { TileType::Air => false, TileType::Custom(k) => k == key };
+                                if ui.selectable_label(is_selected, display_name).clicked() {
+                                    editor.set_selected_tile(TileType::Custom(key.clone()));
+                                }
+                            }
+                        });
+
+                        egui::CollapsingHeader::new("Other").default_open(false).show(ui, |ui| {
+                            for (key, display_name) in &others {
+                                let is_selected = match &selected_type { TileType::Air => false, TileType::Custom(k) => k == key };
+                                if ui.selectable_label(is_selected, display_name).clicked() {
+                                    editor.set_selected_tile(TileType::Custom(key.clone()));
+                                }
+                            }
+                        });
+
+                        ui.separator();
+                        // Air option (no category)
+                        let is_air = matches!(selected_type, TileType::Air);
+                        if ui.selectable_label(is_air, "Air").clicked() { editor.set_selected_tile(TileType::Air); }
+                    });
                     
                     ui.separator();
                     ui.heading("Brush Type");
                     ui.separator();
                     
-                    for brush_type in [BrushType::Single, BrushType::Fill, BrushType::Selector] {
+                    for brush_type in [BrushType::Single, BrushType::Fill, BrushType::Selector, BrushType::Structure] {
                         let is_selected = editor.brush_type() == brush_type;
                         
                         if ui.selectable_label(is_selected, brush_type.name()).clicked() {
                             editor.set_brush_type(brush_type);
                         }
                     }
-                    
+                
+                });
+        }
+
+        // Structure panel when Structure brush active
+        if matches!(editor.brush_type(), BrushType::Structure) {
+            egui::SidePanel::left("structure_panel")
+                .resizable(true)
+                .default_width(200.0)
+                .show(egui_ctx, |ui| {
+                    ui.heading("Structures");
                     ui.separator();
-                    ui.label(format!("Brush: {}", editor.brush_type().name()));
-                    
-                    // Show brush instructions
+                    let modes = [
+                        ("Platform", crate::editor::StructureMode::PlatformRect),
+                        ("Stairs", crate::editor::StructureMode::Stairs),
+                    ];
+                    for (label, mode) in modes {
+                        let is_selected = editor.structure_mode() == mode;
+                        if ui.selectable_label(is_selected, label).clicked() {
+                            editor.set_structure_mode(mode);
+                        }
+                    }
+
                     ui.separator();
-                    ui.heading("Instructions");
-                    match editor.brush_type() {
-                        BrushType::Single => {
-                            ui.label("• Click and drag to place tiles");
-                        },
-                        BrushType::Fill => {
-                            ui.label("• Click and drag to create fill area");
-                            ui.label("• Right-click to cancel");
-                            ui.label("• Release to apply fill");
-                        },
-                        BrushType::Selector => {
-                            ui.label("• Click to select a tile");
-                            ui.label("• Edit tile attributes in inspector");
-                        },
+                    ui.heading("Brush Type");
+                    ui.separator();
+                    for brush_type in [BrushType::Single, BrushType::Fill, BrushType::Selector, BrushType::Structure] {
+                        let is_selected = editor.brush_type() == brush_type;
+                        if ui.selectable_label(is_selected, brush_type.name()).clicked() {
+                            editor.set_brush_type(brush_type);
+                        }
                     }
                 });
         }
@@ -103,9 +143,6 @@ impl UI {
         // Draw tile inspector panel
         if let Some(tile) = editor.get_selected_tile() {
             let coords = editor.get_selected_tile_coords();
-            let tile_type = tile.tile_type;
-            let tile_name = tile.name.clone();
-            let tile_color = tile.color();
             
             egui::SidePanel::right("tile_inspector_panel")
                 .resizable(true)
@@ -118,37 +155,31 @@ impl UI {
                     if let Some((x, y)) = coords {
                         ui.label(format!("Position: ({}, {})", x, y));
                     }
+
+                    // Platform info if present
+                    if let Some((_ptype, min_x, min_y, max_x, max_y)) = editor.get_selected_platform_info() {
+                        ui.separator();
+                        ui.label("Platform:");
+                        // Type display removed; dynamic types have no static name
+                        ui.label(format!("Bounds: ({}, {}) - ({}, {})", min_x, min_y, max_x, max_y));
+                        ui.label(format!("Size: {} x {}", max_x - min_x + 1, max_y - min_y + 1));
+                    }
+                    
                     
                     ui.separator();
                     
-                    // Tile type selection
-                    ui.label("Tile Type:");
-                    for tile_type_option in [TileType::Air, TileType::Grass, TileType::Ground] {
-                        let is_selected = tile_type == tile_type_option;
-                        if ui.selectable_label(is_selected, tile_type_option.name()).clicked() {
-                            editor.update_selected_tile(tile_type_option);
+                    // Metadata UI: show platform metadata if belongs to a platform, else tile metadata
+                    if let Some((x, y)) = coords {
+                        if let Some(p) = editor.level_mut().platform_at_mut(x, y) {
+                            let mut proxy = p; // mutable access
+                            proxy.metadata_ui(ui);
+                        } else {
+                            let mut_tile = editor.level_mut().get_tile_mut(x, y).unwrap();
+                            mut_tile.metadata_ui(ui);
                         }
                     }
                     
                     ui.separator();
-                    
-                    // Tile name editing
-                    ui.label("Name:");
-                    let mut name = tile_name;
-                    if ui.text_edit_singleline(&mut name).changed() {
-                        editor.update_selected_tile_name(name);
-                    }
-                    
-                    ui.separator();
-                    
-                    // Color preview
-                    ui.label("Color Preview:");
-                    let egui_color = egui::Color32::from_rgb(
-                        (tile_color.r * 255.0) as u8,
-                        (tile_color.g * 255.0) as u8,
-                        (tile_color.b * 255.0) as u8,
-                    );
-                    ui.colored_label(egui_color, "■");
                 });
         }
     }

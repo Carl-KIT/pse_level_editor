@@ -49,12 +49,16 @@ impl Camera {
             ..Default::default()
         };
         
-        Self {
+        let mut res = Self {
             camera,
             base_zoom: zoom,
             last_mouse_pos: vec2(0.0, 0.0),
             resize_handler: WindowResizeHandler::new(),
-        }
+        };
+
+        res.apply_aspect_ratio_correction();
+        
+        res
     }
 
     fn apply_aspect_ratio_correction(&mut self) {

@@ -1,7 +1,12 @@
+mod brushes;
+
+pub use brushes::BrushType;
+pub use brushes::structure::StructureMode;
+
 use crate::camera::Camera;
 use crate::level::Level;
-use crate::tile::{TileType, Tile};
-use crate::brush::{BrushManager, BrushType};
+use crate::tile::{TileType, Tile, TileRegistry};
+use brushes::BrushManager;
 use egui_macroquad::macroquad::prelude::*;
 
 // Constants
@@ -17,18 +22,21 @@ pub struct LevelEditor {
     camera: Camera,
     brush_manager: BrushManager,
     show_tile_selector: bool,
+    registry: TileRegistry,
 }
 
 impl LevelEditor {
-    pub fn new(level_width: usize, level_height: usize) -> Self {
+    pub async fn new(level_width: usize, level_height: usize) -> Self {
         let level = Level::new(level_width, level_height);
         let camera = Camera::new(level_width as f32, level_height as f32);
+        let registry = TileRegistry::load_from_dir("assets/textures").await;
         
         Self {
             level,
             camera,
             brush_manager: BrushManager::new(),
             show_tile_selector: true,
+            registry,
         }
     }
 
@@ -47,6 +55,10 @@ impl LevelEditor {
             }
         }
         
+        
+        // If UI is capturing the pointer, skip all world mouse interactions this frame
+
+
         // Handle brush inputs which should work anywhere on screen
         if is_mouse_button_pressed(MouseButton::Right) {
             self.brush_manager.handle_mouse_cancel(&mut self.level);
@@ -146,7 +158,7 @@ impl LevelEditor {
     }
 
     pub fn draw_level(&self) {
-        self.level.draw();
+        self.level.draw(&self.registry);
         // Draw selection indicator if a tile is selected
         if self.brush_manager.brush_type == BrushType::Selector {
             self.level.draw_selection_indicator(self.get_selected_tile_coords());
@@ -167,11 +179,15 @@ impl LevelEditor {
     }
 
     pub fn selected_tile(&self) -> TileType {
-        self.brush_manager.selected_tile
+        self.brush_manager.selected_tile.clone()
     }
 
     pub fn set_selected_tile(&mut self, tile: TileType) {
+        let is_selector = matches!(self.brush_manager.brush_type, BrushType::Selector);
         self.brush_manager.set_selected_tile(tile);
+        if is_selector {
+            self.brush_manager.switch_to_last_drawing_brush();
+        }
     }
 
     pub fn show_tile_selector(&self) -> bool {
@@ -209,6 +225,20 @@ impl LevelEditor {
         } else {
             None
         }
+    }
+
+    pub fn level_mut(&mut self) -> &mut Level { &mut self.level }
+    pub fn registry(&self) -> &TileRegistry { &self.registry }
+    pub fn set_structure_mode(&mut self, mode: StructureMode) { self.brush_manager.set_structure_mode(mode); }
+    pub fn structure_mode(&self) -> StructureMode { self.brush_manager.structure_mode() }
+
+    pub fn get_selected_platform_info(&self) -> Option<(TileType, usize, usize, usize, usize)> {
+        if let Some((x, y)) = self.get_selected_tile_coords() {
+            if let Some(platform) = self.level.platform_at(x, y) {
+                return Some((platform.tile_type.clone(), platform.min_x, platform.min_y, platform.max_x, platform.max_y));
+            }
+        }
+        None
     }
 
     pub fn update_selected_tile(&mut self, tile_type: TileType) {
