@@ -3,7 +3,7 @@ use history::*;
 use crate::tile::*;
 
 use egui_macroquad::macroquad::prelude::*;
-mod platform_ext;
+// mod platform_ext;
 
 // Constants
 const GRID_LINE_WIDTH: f32 = 0.05;
@@ -53,7 +53,7 @@ impl Level {
                 self.tiles[y][x].set_tile_type(tile_type);
 
                 // Opportunistically update platforms locally for maintainability
-                self.try_update_platforms_locally(x, y);
+                // self.try_update_platforms_locally(x, y);
             }
         }
     }
@@ -113,7 +113,7 @@ impl Level {
         if let Some(operation) = self.current_operation.take() {
             if !operation.is_empty() {
                 self.history.add_operation(operation);
-                self.rebuild_platforms();
+                // self.rebuild_platforms();
             }
         }
     }
@@ -124,7 +124,7 @@ impl Level {
             for change in &operation.changes {
                 self.tiles[change.y][change.x].set_tile_type(change.old_tile.clone());
             }
-            self.rebuild_platforms();
+            // self.rebuild_platforms();
         }
     }
 
@@ -134,7 +134,7 @@ impl Level {
             for change in &operation.changes {
                 self.tiles[change.y][change.x].set_tile_type(change.new_tile.clone());
             }
-            self.rebuild_platforms();
+            // self.rebuild_platforms();
         }
     }
 
