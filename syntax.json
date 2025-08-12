@@ -1,0 +1,32 @@
+{
+    "modules": [
+        {
+            "moduleID": 0,
+            "xSpan": 15,
+            "gameObjects": [
+                {
+                    "type": "platform",
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "size": {
+                        "x": 10,
+                        "y": 1
+                    },
+                    "enabled": true,
+                    "mutable": true
+                },
+                {
+                    "type": "bird",
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "enabled": true,
+                    "mutable": true
+                }
+            ]
+        }
+    ]
+}

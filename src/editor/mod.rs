@@ -23,20 +23,30 @@ pub struct LevelEditor {
     brush_manager: BrushManager,
     show_tile_selector: bool,
     registry: TileRegistry,
+    show_modules: bool,
 }
 
 impl LevelEditor {
     pub async fn new(level_width: usize, level_height: usize) -> Self {
-        let level = Level::new(level_width, level_height);
-        let camera = Camera::new(level_width as f32, level_height as f32);
+        let mut level = Level::new(level_width, level_height);
+        // Initialize with 2 modules of size 15 (width will become 30)
+        if level.modules().is_empty() {
+            level.modules_mut().clear();
+            level.modules_mut().push(15);
+            level.modules_mut().push(15);
+            level.apply_modules_as_width();
+        }
+
+        let camera = Camera::new(level.width() as f32, level.height() as f32);
         let registry = TileRegistry::load_from_dir("assets/textures").await;
-        
+
         Self {
             level,
             camera,
             brush_manager: BrushManager::new(),
             show_tile_selector: true,
             registry,
+            show_modules: false,
         }
     }
 
@@ -256,4 +266,16 @@ impl LevelEditor {
             }
         }
     }
+
+    // Modules helpers for UI
+    pub fn toggle_modules_view(&mut self) { self.show_modules = !self.show_modules; }
+    pub fn show_modules_view(&self) -> bool { self.show_modules }
+    pub fn modules(&self) -> &Vec<usize> { self.level.modules() }
+    pub fn set_module_span(&mut self, idx: usize, span: usize) { if let Some(s) = self.level.modules_mut().get_mut(idx) { *s = span; } self.level.apply_modules_as_width(); }
+    pub fn add_module(&mut self, span: usize) { self.level.modules_mut().push(span.max(1)); self.level.apply_modules_as_width(); }
+    pub fn remove_module(&mut self, idx: usize) { if idx < self.level.modules_mut().len() { self.level.modules_mut().remove(idx); self.level.apply_modules_as_width(); } }
+    pub fn level_width(&self) -> usize { self.level.width() }
+
+    // Export
+    pub fn level_export_json(&self) -> serde_json::Result<String> { self.level.export_to_json() }
 } 

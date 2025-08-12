@@ -18,6 +18,16 @@ impl Platform {
     pub fn height(&self) -> usize { self.max_y - self.min_y + 1 }
 }
 
+#[derive(Clone, Debug)]
+pub struct Stairs {
+    pub tile_type: TileType,
+    pub min_x: usize,
+    pub min_y: usize,
+    pub max_x: usize,
+    pub max_y: usize,
+    pub metadata: Vec<MetaField>,
+}
+
 pub trait SelectableMeta {
     fn metadata_ui(&mut self, ui: &mut egui::Ui);
 }
@@ -26,6 +36,8 @@ pub trait SelectableMeta {
 pub enum MetaField {
     Number { key: &'static str, label: &'static str, value: f32, min: f32, max: f32 },
     Text { key: &'static str, label: &'static str, value: String },
+    Bool { key: &'static str, label: &'static str, value: bool, editable: bool },
+    Label { label: &'static str, value: String },
     Choice { key: &'static str, label: &'static str, options: Vec<&'static str>, selected: usize },
 }
 
@@ -44,6 +56,20 @@ impl MetaField {
                     ui.label(*label);
                     let mut buf = value.clone();
                     if ui.text_edit_singleline(&mut buf).changed() { *value = buf; }
+                });
+            }
+            MetaField::Bool { label, value, editable, .. } => {
+                ui.horizontal(|ui| {
+                    ui.label(*label);
+                    let mut b = *value;
+                    ui.add_enabled(*editable, egui::Checkbox::new(&mut b, ""));
+                    *value = b;
+                });
+            }
+            MetaField::Label { label, value } => {
+                ui.horizontal(|ui| {
+                    ui.label(*label);
+                    ui.label(value.clone());
                 });
             }
             MetaField::Choice { label, options, selected, .. } => {
@@ -110,13 +136,64 @@ impl SelectableMeta for Tile {
 impl SelectableMeta for Platform {
     fn metadata_ui(&mut self, ui: &mut egui::Ui) {
         ui.label("Platform Metadata:");
+        // Computed fields: position and size
+        ui.label(format!("Position: ({}, {})", self.min_x, self.min_y));
+        ui.label(format!("Size: {} x {}", self.width(), self.height()));
         for field in &mut self.metadata { field.ui(ui); }
     }
 }
 
-pub fn default_tile_metadata_for(tile_type: &TileType) -> Vec<MetaField> { match tile_type { TileType::Air => vec![], TileType::Custom(_k) => vec![] } }
+impl SelectableMeta for Stairs {
+    fn metadata_ui(&mut self, ui: &mut egui::Ui) {
+        ui.label("Stairs Metadata:");
+        // Computed fields: position and size (single value since square-ish by design)
+        ui.label(format!("Position: ({}, {})", self.min_x, self.min_y));
+        let size = (self.max_x - self.min_x + 1).max(self.max_y - self.min_y + 1);
+        ui.label(format!("Size: {}", size));
+        for field in &mut self.metadata { field.ui(ui); }
+    }
+}
 
-pub fn default_platform_metadata_for(_tile_type: TileType) -> Vec<MetaField> { vec![] }
+pub fn default_tile_metadata_for(tile_type: &TileType) -> Vec<MetaField> {
+    let mut fields: Vec<MetaField> = Vec::new();
+    // Common fields
+    fields.push(MetaField::Text { key: "object_id", label: "Object ID", value: String::new() });
+    let type_label = match tile_type { TileType::Air => "Air".to_string(), TileType::Custom(k) => k.clone() };
+    fields.push(MetaField::Label { label: "Type", value: type_label });
+    fields.push(MetaField::Bool { key: "enabled", label: "Enabled", value: true, editable: false });
+    fields.push(MetaField::Bool { key: "mutable", label: "Mutable", value: false, editable: true });
+
+    // Special-case: powerup tile
+    if let TileType::Custom(k) = tile_type {
+        let kl = k.to_lowercase();
+        if kl.contains("powerup") {
+            fields.push(MetaField::Text { key: "powerup", label: "Powerup", value: String::new() });
+        }
+        // Special-case: pig and bird speed
+        if kl.contains("pig") || kl.contains("bird") {
+            fields.push(MetaField::Number { key: "speed", label: "Speed", value: 1.0, min: 0.0, max: 10.0 });
+        }
+    }
+    fields
+}
+
+pub fn default_platform_metadata_for(_tile_type: TileType) -> Vec<MetaField> {
+    vec![
+        MetaField::Text { key: "object_id", label: "Object ID", value: String::new() },
+        MetaField::Label { label: "Type", value: "Platform".to_string() },
+        MetaField::Bool { key: "enabled", label: "Enabled", value: true, editable: false },
+        MetaField::Bool { key: "mutable", label: "Mutable", value: false, editable: true },
+    ]
+}
+
+pub fn default_stairs_metadata_for(_tile_type: TileType) -> Vec<MetaField> {
+    vec![
+        MetaField::Text { key: "object_id", label: "Object ID", value: String::new() },
+        MetaField::Label { label: "Type", value: "Stairs".to_string() },
+        MetaField::Bool { key: "enabled", label: "Enabled", value: true, editable: false },
+        MetaField::Bool { key: "mutable", label: "Mutable", value: false, editable: true },
+    ]
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlatformGroup { Grass, Ground, Wall }

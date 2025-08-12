@@ -144,8 +144,22 @@ impl Brush for StructureBrush {
 
             let shape = self.mode.shape((sx, sy), (ex, ey));
 
-            for (x, y) in shape {
-                level.set_tile(x, y, wall.clone());
+            match self.mode {
+                StructureMode::PlatformRect => {
+                    // Abort if crosses module border
+                    if crosses_module_border(level, &shape) { self.active = false; return true; }
+                    for (x, y) in shape.iter().copied() { level.set_tile(x, y, wall.clone()); }
+                }
+                StructureMode::Stairs => {
+                    // Abort if crosses module border
+                    if crosses_module_border(level, &shape) { self.active = false; return true; }
+                    // Place tiles first
+                    for (x, y) in shape.iter().copied() {
+                        level.set_tile(x, y, wall.clone());
+                    }
+                    // Assign stairs structure to exact cells of shape
+                    level.assign_stairs_with_cells(wall.clone(), &shape);
+                }
             }
 
             level.finish_operation();
@@ -166,4 +180,15 @@ impl Brush for StructureBrush {
         self.active
     }
     fn update_highlights(&mut self, _level: &mut Level, _mx: Option<usize>, _my: Option<usize>) {}
+}
+
+fn crosses_module_border(level: &Level, cells: &[(usize, usize)]) -> bool {
+    if cells.is_empty() { return false; }
+    let mut module: Option<usize> = None;
+    for &(x, _y) in cells {
+        if let Some(mi) = level.module_index_for_x(x) {
+            if let Some(m0) = module { if m0 != mi { return true; } } else { module = Some(mi); }
+        }
+    }
+    false
 }

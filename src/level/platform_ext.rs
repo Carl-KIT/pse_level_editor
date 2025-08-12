@@ -12,16 +12,20 @@ impl Level {
             for x in 0..self.width {
                 if visited[y][x] { continue; }
                 // seed tile
-                // Only tiles belonging to a platform group join platforms
+                // Only tiles belonging to a platform group join platforms, ignore stairs, and respect module borders
+                if self.stairs_map[y][x].is_some() { continue; }
                 let group = self.registry_platform_group_for(&self.tiles[y][x].tile_type);
                 if group.is_none() { continue; }
                 let group = group.unwrap();
+                let module_end_x = self.module_end_for_x(x);
 
                 // First row width from (x,y)
                 let mut max_width = 0usize;
                 let mut xi = x;
-                while xi < self.width {
-                    if !visited[y][xi] && self.registry_platform_group_for(&self.tiles[y][xi].tile_type) == Some(group) {
+                while xi < self.width && xi < module_end_x {
+                    if !visited[y][xi]
+                        && self.stairs_map[y][xi].is_none()
+                        && self.registry_platform_group_for(&self.tiles[y][xi].tile_type) == Some(group) {
                         max_width += 1;
                         xi += 1;
                     } else { break; }
@@ -34,8 +38,10 @@ impl Level {
                 while yy < self.height {
                     let mut run = 0usize;
                     let mut xx = x;
-                    while xx < x + rect_width && xx < self.width {
-                        if !visited[yy][xx] && self.registry_platform_group_for(&self.tiles[yy][xx].tile_type) == Some(group) { run += 1; xx += 1; } else { break; }
+                    while xx < x + rect_width && xx < self.width && xx < module_end_x {
+                        if !visited[yy][xx]
+                            && self.stairs_map[yy][xx].is_none()
+                            && self.registry_platform_group_for(&self.tiles[yy][xx].tile_type) == Some(group) { run += 1; xx += 1; } else { break; }
                     }
                     if run == 0 { break; }
                     rect_width = rect_width.min(run);
@@ -123,7 +129,8 @@ impl Level {
         }
 
         for yy in 0..self.height { for xx in 0..self.width { if let Some(old_idx) = self.platform_map[yy][xx] {
-            if to_remove.contains(&old_idx) { self.platform_map[yy][xx] = None; } else if let Some(new_idx) = old_to_new[old_idx] { self.platform_map[yy][xx] = Some(new_idx); }
+            if to_remove.contains(&old_idx) { self.platform_map[yy][xx] = None; }
+            else if let Some(new_idx) = old_to_new[old_idx] { self.platform_map[yy][xx] = Some(new_idx); }
         } } }
         self.platforms = new_platforms;
     }

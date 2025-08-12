@@ -14,6 +14,13 @@ impl UI {
                     let current_state = editor.show_tile_selector();
                     editor.set_show_tile_selector(!current_state);
                 }
+
+                if ui.button("Modules View").clicked() { editor.toggle_modules_view(); }
+                if ui.button("Export JSON").clicked() {
+                    if let Ok(json) = editor.level_export_json() {
+                        let _ = std::fs::write("export.json", json);
+                    }
+                }
                 
                 ui.separator();
                 
@@ -32,8 +39,8 @@ impl UI {
             });
         });
 
-        // Draw tile selector panel, hidden when Structure brush is active
-        if editor.show_tile_selector() && !matches!(editor.brush_type(), BrushType::Structure) {
+        // Draw left panel: either tile selector or modules view (mutually exclusive)
+        if !editor.show_modules_view() && editor.show_tile_selector() && !matches!(editor.brush_type(), BrushType::Structure) {
             egui::SidePanel::left("tile_selector_panel")
                 .resizable(true)
                 .default_width(200.0)
@@ -140,8 +147,36 @@ impl UI {
                 });
         }
 
-        // Draw tile inspector panel
-        if let Some(tile) = editor.get_selected_tile() {
+        // Removed bottom modules toolbar; button placed in top menu
+
+        // Draw modules panel on left when enabled
+        if editor.show_modules_view() {
+            egui::SidePanel::left("modules_panel")
+                .resizable(true)
+                .default_width(220.0)
+                .show(egui_ctx, |ui| {
+                    ui.heading("Modules");
+                    ui.separator();
+                    ui.label(format!("Level width (sum of spans): {}", editor.level_width()));
+                    ui.separator();
+                    // Modules spans list
+                    let mut to_remove: Option<usize> = None;
+                    let modules_snapshot = editor.modules().clone();
+                    for (i, span) in modules_snapshot.iter().copied().enumerate() {
+                        let mut span_mut = span as i32;
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Module {} span:", i));
+                            ui.add(egui::DragValue::new(&mut span_mut).range(1..=100000));
+                            if ui.button("Remove").clicked() { to_remove = Some(i); }
+                        });
+                        if span_mut as usize != span { editor.set_module_span(i, span_mut.max(1) as usize); }
+                    }
+                    if let Some(idx) = to_remove { editor.remove_module(idx); }
+                    ui.separator();
+                    if ui.button("Add Module").clicked() { editor.add_module(10); }
+                    ui.label("Borders appear at cumulative sums starting at x=0");
+                });
+        } else if let Some(tile) = editor.get_selected_tile() {
             let coords = editor.get_selected_tile_coords();
             
             egui::SidePanel::right("tile_inspector_panel")
@@ -168,11 +203,12 @@ impl UI {
                     
                     ui.separator();
                     
-                    // Metadata UI: show platform metadata if belongs to a platform, else tile metadata
+                    // Metadata UI: show structure metadata (platform or stairs) if present, else tile metadata
                     if let Some((x, y)) = coords {
                         if let Some(p) = editor.level_mut().platform_at_mut(x, y) {
-                            let mut proxy = p; // mutable access
-                            proxy.metadata_ui(ui);
+                            p.metadata_ui(ui);
+                        } else if let Some(s) = editor.level_mut().stairs_at_mut(x, y) {
+                            s.metadata_ui(ui);
                         } else {
                             let mut_tile = editor.level_mut().get_tile_mut(x, y).unwrap();
                             mut_tile.metadata_ui(ui);

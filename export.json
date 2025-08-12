@@ -1,0 +1,25 @@
+{
+  "modules": [
+    {
+      "moduleID": 0,
+      "xSpan": 15,
+      "gameObjects": [
+        {
+          "type": "stairs",
+          "position": {
+            "x": 11,
+            "y": 7
+          },
+          "size": 4,
+          "enabled": true,
+          "mutable": false
+        }
+      ]
+    },
+    {
+      "moduleID": 1,
+      "xSpan": 15,
+      "gameObjects": []
+    }
+  ]
+}

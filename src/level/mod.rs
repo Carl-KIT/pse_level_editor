@@ -3,7 +3,8 @@ use history::*;
 use crate::tile::*;
 
 use egui_macroquad::macroquad::prelude::*;
-// mod platform_ext;
+use serde::Serialize;
+mod platform_ext;
 
 // Constants
 const GRID_LINE_WIDTH: f32 = 0.05;
@@ -19,6 +20,10 @@ pub struct Level {
     pub(crate) highlighted_tiles: Vec<(usize, usize)>, // (x, y) coordinates of tiles to highlight
     pub(crate) platforms: Vec<Platform>,
     pub(crate) platform_map: Vec<Vec<Option<usize>>>, // index into platforms
+    pub(crate) stairs: Vec<Stairs>,
+    pub(crate) stairs_map: Vec<Vec<Option<usize>>>, // index into stairs
+    // Modules: sequence of x-spans. Borders are cumulative sums starting at 0
+    pub(crate) modules: Vec<usize>,
 }
 
 impl Level {
@@ -33,6 +38,9 @@ impl Level {
             highlighted_tiles: Vec::new(),
             platforms: Vec::new(),
             platform_map: vec![vec![None; width]; height],
+            stairs: Vec::new(),
+            stairs_map: vec![vec![None; width]; height],
+            modules: Vec::new(),
         }
     }
 
@@ -53,7 +61,9 @@ impl Level {
                 self.tiles[y][x].set_tile_type(tile_type);
 
                 // Opportunistically update platforms locally for maintainability
-                // self.try_update_platforms_locally(x, y);
+                self.try_update_platforms_locally(x, y);
+                // When changing a tile type, clear its stairs membership. Creators will reassign.
+                self.stairs_map[y][x] = None;
             }
         }
     }
@@ -113,7 +123,7 @@ impl Level {
         if let Some(operation) = self.current_operation.take() {
             if !operation.is_empty() {
                 self.history.add_operation(operation);
-                // self.rebuild_platforms();
+                self.rebuild_platforms();
             }
         }
     }
@@ -124,7 +134,7 @@ impl Level {
             for change in &operation.changes {
                 self.tiles[change.y][change.x].set_tile_type(change.old_tile.clone());
             }
-            // self.rebuild_platforms();
+            self.rebuild_platforms();
         }
     }
 
@@ -134,7 +144,7 @@ impl Level {
             for change in &operation.changes {
                 self.tiles[change.y][change.x].set_tile_type(change.new_tile.clone());
             }
-            // self.rebuild_platforms();
+            self.rebuild_platforms();
         }
     }
 
@@ -152,6 +162,61 @@ impl Level {
 
     pub fn height(&self) -> usize {
         self.height
+    }
+
+    // Resize the level width (x-size). Y-size remains static
+    pub fn resize_width(&mut self, new_width: usize) {
+        if new_width == self.width { return; }
+        if new_width > self.width {
+            let extra = new_width - self.width;
+            for y in 0..self.height {
+                for _ in 0..extra { self.tiles[y].push(Tile::default()); }
+            }
+            for y in 0..self.height {
+                for _ in 0..extra { self.platform_map[y].push(None); }
+            }
+            for y in 0..self.height {
+                for _ in 0..extra { self.stairs_map[y].push(None); }
+            }
+            self.width = new_width;
+        } else {
+            // Shrink
+            for y in 0..self.height {
+                self.tiles[y].truncate(new_width);
+                self.platform_map[y].truncate(new_width);
+                self.stairs_map[y].truncate(new_width);
+            }
+            self.width = new_width;
+            // Cleanup stairs vector to remove any entries no longer referenced
+            self.compact_stairs_after_resize();
+        }
+        // Rebuild platforms to reflect new width
+        self.rebuild_platforms();
+    }
+
+    fn compact_stairs_after_resize(&mut self) {
+        use std::collections::BTreeSet;
+        let mut used: BTreeSet<usize> = BTreeSet::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if let Some(idx) = self.stairs_map[y][x] { used.insert(idx); }
+            }
+        }
+        if used.is_empty() {
+            self.stairs.clear();
+            return;
+        }
+        let mut old_to_new: Vec<Option<usize>> = vec![None; self.stairs.len()];
+        let mut new_vec: Vec<Stairs> = Vec::with_capacity(used.len());
+        for (old_idx, s) in self.stairs.iter().enumerate() {
+            if used.contains(&old_idx) {
+                let new_idx = new_vec.len();
+                new_vec.push(s.clone());
+                old_to_new[old_idx] = Some(new_idx);
+            }
+        }
+        for y in 0..self.height { for x in 0..self.width { if let Some(old_idx) = self.stairs_map[y][x] { self.stairs_map[y][x] = old_to_new[old_idx]; } } }
+        self.stairs = new_vec;
     }
 
     pub fn platforms(&self) -> &Vec<Platform> { &self.platforms }
@@ -200,6 +265,13 @@ impl Level {
             );
             draw_rectangle(rect.x, rect.y, rect.w, rect.h, Color::new(1.0, 1.0, 0.0, 0.5)); // Semi-transparent yellow
         }
+
+        // Draw module borders as vertical red lines at cumulative x positions
+        let borders = self.module_borders();
+        for bx in borders {
+            let x = bx as f32 * TILE_SIZE;
+            draw_line(x, 0.0, x, self.height as f32 * TILE_SIZE, 0.1, RED);
+        }
     }
 
     pub fn draw_selection_indicator(&self, selected_coords: Option<(usize, usize)>) {
@@ -211,6 +283,14 @@ impl Level {
                         p.min_y as f32 * TILE_SIZE,
                         (p.max_x - p.min_x + 1) as f32 * TILE_SIZE,
                         (p.max_y - p.min_y + 1) as f32 * TILE_SIZE,
+                    );
+                    draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 0.1, RED);
+                } else if let Some(s) = self.stairs_at(x, y) {
+                    let rect = Rect::new(
+                        s.min_x as f32 * TILE_SIZE,
+                        s.min_y as f32 * TILE_SIZE,
+                        (s.max_x - s.min_x + 1) as f32 * TILE_SIZE,
+                        (s.max_y - s.min_y + 1) as f32 * TILE_SIZE,
                     );
                     draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 0.1, RED);
                 } else {
@@ -226,4 +306,216 @@ impl Level {
         }
     }
 
+    pub fn stairs_at(&self, x: usize, y: usize) -> Option<&Stairs> {
+        if x < self.width && y < self.height {
+            if let Some(idx) = self.stairs_map[y][x] { self.stairs.get(idx) } else { None }
+        } else { None }
+    }
+
+    pub fn stairs_at_mut(&mut self, x: usize, y: usize) -> Option<&mut Stairs> {
+        if x < self.width && y < self.height {
+            if let Some(idx) = self.stairs_map[y][x] { self.stairs.get_mut(idx) } else { None }
+        } else { None }
+    }
+
+    pub fn assign_stairs_with_cells(&mut self, t: TileType, cells: &[(usize, usize)]) -> usize {
+        if cells.is_empty() { return self.stairs.len(); }
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (usize::MAX, usize::MAX, 0usize, 0usize);
+        for &(x, y) in cells {
+            min_x = min_x.min(x); min_y = min_y.min(y); max_x = max_x.max(x); max_y = max_y.max(y);
+        }
+        let new_index = self.stairs.len();
+        self.stairs.push(Stairs { tile_type: t.clone(), min_x, min_y, max_x, max_y, metadata: default_stairs_metadata_for(t) });
+        for &(x, y) in cells { if x < self.width && y < self.height { self.stairs_map[y][x] = Some(new_index); } }
+        new_index
+    }
+
+    pub fn modules(&self) -> &Vec<usize> { &self.modules }
+    pub fn modules_mut(&mut self) -> &mut Vec<usize> { &mut self.modules }
+    pub fn module_borders(&self) -> Vec<usize> {
+        let mut res = vec![0usize];
+        let mut acc = 0usize;
+        for span in &self.modules {
+            acc = acc.saturating_add(*span);
+            if acc >= self.width { break; }
+            res.push(acc);
+        }
+        res
+    }
+
+    // Recompute width = sum of module spans and resize level accordingly
+    pub fn apply_modules_as_width(&mut self) {
+        let new_width = self.modules.iter().copied().sum::<usize>().max(0);
+        self.resize_width(new_width);
+        self.enforce_module_boundaries_for_structures();
+    }
+
+    pub fn module_index_for_x(&self, x: usize) -> Option<usize> {
+        if x >= self.width { return None; }
+        let borders = self.module_borders();
+        for i in 0..borders.len() {
+            let start = borders[i];
+            let end = if i + 1 < borders.len() { borders[i + 1] } else { self.width };
+            if x >= start && x < end { return Some(i); }
+        }
+        None
+    }
+
+    pub fn module_end_for_x(&self, x: usize) -> usize {
+        if x >= self.width { return self.width; }
+        let borders = self.module_borders();
+        for i in 0..borders.len() {
+            let start = borders[i];
+            let end = if i + 1 < borders.len() { borders[i + 1] } else { self.width };
+            if x >= start && x < end { return end; }
+        }
+        self.width
+    }
+
+    fn enforce_module_boundaries_for_structures(&mut self) {
+        use std::collections::BTreeSet;
+        // Remove any stairs spanning multiple modules
+        let mut to_remove: BTreeSet<usize> = BTreeSet::new();
+        for (idx, s) in self.stairs.iter().enumerate() {
+            let mi_start = self.module_index_for_x(s.min_x);
+            let mi_end = self.module_index_for_x(s.max_x);
+            if mi_start.is_some() && mi_end.is_some() && mi_start != mi_end { to_remove.insert(idx); }
+        }
+        if to_remove.is_empty() { return; }
+        // Clear map cells for removed stairs
+        for y in 0..self.height { for x in 0..self.width { if let Some(si) = self.stairs_map[y][x] { if to_remove.contains(&si) { self.stairs_map[y][x] = None; } } } }
+        // Compact stairs vec and remap indices
+        let mut new_vec: Vec<Stairs> = Vec::with_capacity(self.stairs.len() - to_remove.len());
+        let mut old_to_new: Vec<Option<usize>> = vec![None; self.stairs.len()];
+        for (old_idx, s) in self.stairs.iter().enumerate() {
+            if to_remove.contains(&old_idx) { continue; }
+            let new_idx = new_vec.len();
+            new_vec.push(s.clone());
+            old_to_new[old_idx] = Some(new_idx);
+        }
+        for y in 0..self.height { for x in 0..self.width { if let Some(old_idx) = self.stairs_map[y][x] { self.stairs_map[y][x] = old_to_new[old_idx]; } } }
+        self.stairs = new_vec;
+    }
 } 
+
+// ----- Export (serde) -----
+
+#[derive(Serialize)]
+struct ExportLevel {
+    modules: Vec<ExportModule>,
+}
+
+#[derive(Serialize)]
+struct ExportModule {
+    #[serde(rename = "moduleID")]
+    module_id: usize,
+    #[serde(rename = "xSpan")]
+    x_span: usize,
+    #[serde(rename = "gameObjects")]
+    game_objects: Vec<ExportGameObject>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum ExportGameObject {
+    #[serde(rename = "platform")]
+    Platform { position: Position, size: Size, enabled: bool, mutable: bool },
+    #[serde(rename = "stairs")]
+    Stairs { position: Position, size: usize, enabled: bool, mutable: bool },
+    #[serde(rename = "tile")]
+    Tile { kind: String, position: Position, enabled: bool, mutable: bool, #[serde(skip_serializing_if = "Option::is_none")] object_id: Option<String>, #[serde(skip_serializing_if = "Option::is_none")] powerup: Option<String>, #[serde(skip_serializing_if = "Option::is_none")] speed: Option<f32> },
+}
+
+#[derive(Serialize)]
+struct Position { x: usize, y: usize }
+
+#[derive(Serialize)]
+struct Size { x: usize, y: usize }
+
+impl Level {
+    pub fn export_to_json(&self) -> serde_json::Result<String> {
+        let borders = self.module_borders();
+        let mut modules: Vec<ExportModule> = Vec::new();
+        let mut start_x = 0usize;
+        for (i, span) in self.modules.iter().copied().enumerate() {
+            let end_x = start_x + span;
+            let mut game_objects: Vec<ExportGameObject> = Vec::new();
+
+            // Platforms fully contained within module
+            for p in &self.platforms {
+                if p.min_x >= start_x && p.max_x < end_x {
+                    game_objects.push(ExportGameObject::Platform {
+                        position: Position { x: p.min_x, y: p.min_y },
+                        size: Size { x: p.max_x - p.min_x + 1, y: p.max_y - p.min_y + 1 },
+                        enabled: true,
+                        mutable: get_meta_bool(&p.metadata, "mutable", false),
+                    });
+                }
+            }
+
+            // Stairs fully contained within module
+            for s in &self.stairs {
+                if s.min_x >= start_x && s.max_x < end_x {
+                    let size = (s.max_x - s.min_x + 1).max(s.max_y - s.min_y + 1);
+                    game_objects.push(ExportGameObject::Stairs {
+                        position: Position { x: s.min_x, y: s.min_y },
+                        size,
+                        enabled: true,
+                        mutable: get_meta_bool(&s.metadata, "mutable", false),
+                    });
+                }
+            }
+
+            // Individual tiles not in any structure, within module
+            for y in 0..self.height {
+                for x in start_x..end_x.min(self.width) {
+                    if self.platform_at(x, y).is_none() && self.stairs_at(x, y).is_none() {
+                        let t = &self.tiles[y][x];
+                        if let TileType::Custom(k) = &t.tile_type {
+                            let kind = k.clone();
+                            let object_id = get_meta_text(&t.metadata, "object_id");
+                            let powerup = get_meta_text(&t.metadata, "powerup");
+                            let speed = get_meta_number(&t.metadata, "speed");
+                            game_objects.push(ExportGameObject::Tile {
+                                kind,
+                                position: Position { x, y },
+                                enabled: get_meta_bool(&t.metadata, "enabled", true),
+                                mutable: get_meta_bool(&t.metadata, "mutable", false),
+                                object_id,
+                                powerup,
+                                speed,
+                            });
+                        }
+                    }
+                }
+            }
+
+            modules.push(ExportModule { module_id: i, x_span: span, game_objects });
+            start_x = end_x;
+        }
+
+        let export = ExportLevel { modules };
+        serde_json::to_string_pretty(&export)
+    }
+}
+
+fn get_meta_text(fields: &[MetaField], key: &str) -> Option<String> {
+    for f in fields {
+        if let MetaField::Text { key: k, value, .. } = f { if *k == key { return Some(value.clone()); } }
+    }
+    None
+}
+
+fn get_meta_bool(fields: &[MetaField], key: &str, default_value: bool) -> bool {
+    for f in fields {
+        if let MetaField::Bool { key: k, value, .. } = f { if *k == key { return *value; } }
+    }
+    default_value
+}
+
+fn get_meta_number(fields: &[MetaField], key: &str) -> Option<f32> {
+    for f in fields {
+        if let MetaField::Number { key: k, value, .. } = f { if *k == key { return Some(*value); } }
+    }
+    None
+}
