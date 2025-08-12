@@ -157,7 +157,7 @@ impl UI {
                 .show(egui_ctx, |ui| {
                     ui.heading("Modules");
                     ui.separator();
-                    ui.label(format!("Level width (sum of spans): {}", editor.level_width()));
+                    ui.label(format!("Level width: {}", editor.level_width()));
                     ui.separator();
                     // Modules spans list
                     let mut to_remove: Option<usize> = None;
