@@ -174,7 +174,6 @@ impl UI {
                     if let Some(idx) = to_remove { editor.remove_module(idx); }
                     ui.separator();
                     if ui.button("Add Module").clicked() { editor.add_module(10); }
-                    ui.label("Borders appear at cumulative sums starting at x=0");
                 });
         } else if let Some(tile) = editor.get_selected_tile() {
             let coords = editor.get_selected_tile_coords();
