@@ -319,14 +319,16 @@ impl Level {
         } else { None }
     }
 
-    pub fn assign_stairs_with_cells(&mut self, t: TileType, cells: &[(usize, usize)]) -> usize {
+    pub fn assign_stairs_with_cells(&mut self, t: TileType, cells: &[(usize, usize)], orientation: i32) -> usize {
         if cells.is_empty() { return self.stairs.len(); }
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (usize::MAX, usize::MAX, 0usize, 0usize);
         for &(x, y) in cells {
             min_x = min_x.min(x); min_y = min_y.min(y); max_x = max_x.max(x); max_y = max_y.max(y);
         }
         let new_index = self.stairs.len();
-        self.stairs.push(Stairs { tile_type: t.clone(), min_x, min_y, max_x, max_y, metadata: default_stairs_metadata_for(t) });
+        let mut metadata = default_stairs_metadata_for(t.clone());
+        metadata.push(MetaField::Label { label: "Orientation", value: orientation.to_string() });
+        self.stairs.push(Stairs { tile_type: t.clone(), min_x, min_y, max_x, max_y, metadata });
         for &(x, y) in cells { if x < self.width && y < self.height { self.stairs_map[y][x] = Some(new_index); } }
         new_index
     }
@@ -454,10 +456,12 @@ impl Level {
                 if s.min_x >= start_x && s.max_x < end_x {
                     let size = (s.max_x - s.min_x + 1).max(s.max_y - s.min_y + 1);
                     let object_id = get_meta_text(&s.metadata, "object_id").unwrap_or_default();
+                    let orientation = get_meta_label(&s.metadata, "Orientation").unwrap_or_else(|| "0".to_string());
                     game_objects.push(json!({
                         "type": "stairs",
                         "position": { "x": s.min_x, "y": s.min_y },
                         "size": size,
+                        "orientation": orientation,
                         "enabled": true,
                         "mutable": get_meta_bool(&s.metadata, "mutable", false),
                         "object_id": object_id,
@@ -524,4 +528,149 @@ fn display_name_for_tile_type(registry: &TileRegistry, t: &TileType) -> Option<S
         TileType::Air => Some("Air".to_string()),
         TileType::Custom(k) => registry.get(k).map(|tk| tk.display_name.clone()),
     }
+}
+
+fn get_meta_label(fields: &[MetaField], label: &str) -> Option<String> {
+    for f in fields {
+        if let MetaField::Label { label: l, value } = f { if *l == label { return Some(value.clone()); } }
+    }
+    None
+}
+
+// ----- Import (serde) -----
+
+#[derive(serde::Deserialize)]
+struct ImportLevel { name: Option<String>, modules: Vec<ImportModule> }
+
+#[derive(serde::Deserialize)]
+struct ImportModule { #[serde(rename = "xSpan")] x_span: usize, #[serde(rename = "gameObjects")] game_objects: Vec<serde_json::Value> }
+
+impl Level {
+    pub fn import_from_json(&mut self, json_str: &str, registry: &TileRegistry) -> serde_json::Result<()> {
+        // Parse
+        let parsed: ImportLevel = serde_json::from_str(json_str)?;
+
+        // Apply modules and resize width
+        self.modules.clear();
+        for m in &parsed.modules { self.modules.push(m.x_span.max(1)); }
+        self.apply_modules_as_width();
+
+        // Clear tiles and structures
+        for y in 0..self.height { for x in 0..self.width { self.tiles[y][x] = Tile::default(); self.platform_map[y][x] = None; self.stairs_map[y][x] = None; } }
+        self.platforms.clear();
+        self.stairs.clear();
+
+        // Place objects per module
+        let mut start_x = 0usize;
+        for m in &parsed.modules {
+            let end_x = start_x + m.x_span;
+            for obj in &m.game_objects {
+                if let Some(obj_type) = obj.get("type").and_then(|v| v.as_str()) {
+                    if obj_type.eq_ignore_ascii_case("stairs") {
+                        // stairs
+                        if let (Some(pos), Some(size_v)) = (obj.get("position"), obj.get("size")) {
+                            let x = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                            let y = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                            let size = size_v.as_u64().unwrap_or(0) as usize;
+                            let orientation = obj.get("orientation").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+                            let t = tile_type_from_display_name(registry, "wall").unwrap_or(TileType::Custom("wall".into()));
+                            // Generate stairs shape similar to creation
+                            let mut cells: Vec<(usize, usize)> = Vec::new();
+                            for i in 0..size {
+                                let cx = if orientation >= 0 { x + i } else { x + size - 1 - i };
+                                let start_y = y + i;
+                                for yy in start_y..(y + size) { if cx < self.width && yy < self.height { self.tiles[yy][cx].set_tile_type(t.clone()); cells.push((cx, yy)); } }
+                            }
+                            let object_id = obj.get("object_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let idx = self.assign_stairs_with_cells(t.clone(), &cells, orientation);
+                            if let Some(oid) = object_id { set_meta_text_label(&mut self.stairs[idx].metadata, "Object ID", oid); }
+                            let mutable = obj.get("mutable").and_then(|v| v.as_bool()).unwrap_or(false);
+                            set_meta_bool(&mut self.stairs[idx].metadata, "mutable", mutable);
+                        }
+                    } else {
+                        // Distinguish platform vs tile by presence of size object
+                        if let Some(size) = obj.get("size").and_then(|v| if v.is_object() { Some(v) } else { None }) {
+                            // platform
+                            let type_name = obj_type;
+                            let t = tile_type_from_display_name(registry, type_name).unwrap_or(TileType::Custom(type_name.to_string()));
+                            if let Some(pos) = obj.get("position") {
+                                let px = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                let py = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                let sx = size.get("x").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+                                let sy = size.get("y").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+                                for yy in py..py+sy { for xx in px..px+sx { if xx < self.width && yy < self.height { self.tiles[yy][xx].set_tile_type(t.clone()); } } }
+                                // After platforms added, we will rebuild and then apply metadata
+                            }
+                        } else {
+                            // single tile
+                            let type_name = obj_type;
+                            let t = tile_type_from_display_name(registry, type_name).unwrap_or(TileType::Custom(type_name.to_string()));
+                            if let Some(pos) = obj.get("position") {
+                                let x = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                let y = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                if x < self.width && y < self.height { self.tiles[y][x].set_tile_type(t.clone());
+                                    // Apply tile metadata
+                                    if let Some(oid) = obj.get("object_id").and_then(|v| v.as_str()) { set_meta_text(&mut self.tiles[y][x].metadata, "object_id", oid.to_string()); }
+                                    if let Some(mb) = obj.get("mutable").and_then(|v| v.as_bool()) { set_meta_bool(&mut self.tiles[y][x].metadata, "mutable", mb); }
+                                    if let Some(pu) = obj.get("powerup").and_then(|v| v.as_str()) { set_meta_text(&mut self.tiles[y][x].metadata, "powerup", pu.to_string()); }
+                                    if let Some(sp) = obj.get("speed").and_then(|v| v.as_f64()) { set_meta_number(&mut self.tiles[y][x].metadata, "speed", sp as f32); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            start_x = end_x;
+        }
+
+        // Rebuild platforms then apply platform metadata
+        self.rebuild_platforms();
+        // Second pass for platform metadata now that platforms exist
+        start_x = 0;
+        for m in &parsed.modules { let end_x = start_x + m.x_span; for obj in &m.game_objects {
+            if let Some(size) = obj.get("size").and_then(|v| if v.is_object() { Some(v) } else { None }) {
+                let type_name = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(pos) = obj.get("position") {
+                    let px = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let py = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let sx = size.get("x").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+                    let sy = size.get("y").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+                    // Find a platform that covers this rect
+                    let t_opt = tile_type_from_display_name(registry, type_name);
+                    if let Some(t_type) = t_opt {
+                        // Check top-left cell's platform
+                        if let Some(p) = self.platform_at_mut(px, py) { if p.min_x == px && p.min_y == py && (p.max_x - p.min_x + 1) == sx && (p.max_y - p.min_y + 1) == sy && p.tile_type == t_type {
+                            if let Some(oid) = obj.get("object_id").and_then(|v| v.as_str()) { set_meta_text(&mut p.metadata, "object_id", oid.to_string()); }
+                            if let Some(mb) = obj.get("mutable").and_then(|v| v.as_bool()) { set_meta_bool(&mut p.metadata, "mutable", mb); }
+                        } }
+                    }
+                }
+            } }
+            start_x = end_x;
+        }
+
+        Ok(())
+    }
+}
+
+fn tile_type_from_display_name(registry: &TileRegistry, display: &str) -> Option<TileType> {
+    let dl = display.to_lowercase();
+    for k in registry.kinds() { if k.display_name.to_lowercase() == dl || k.key.to_lowercase() == dl { return Some(TileType::Custom(k.key.clone())); } }
+    None
+}
+
+fn set_meta_text(fields: &mut Vec<MetaField>, key: &str, value: String) {
+    for f in fields.iter_mut() { if let MetaField::Text { key: k, value: v, .. } = f { if *k == key { *v = value.clone(); return; } } }
+}
+
+fn set_meta_text_label(fields: &mut Vec<MetaField>, label: &str, value: String) {
+    for f in fields.iter_mut() { if let MetaField::Label { label: l, value: v } = f { if *l == label { *v = value.clone(); return; } } }
+}
+
+fn set_meta_bool(fields: &mut Vec<MetaField>, key: &str, value: bool) {
+    for f in fields.iter_mut() { if let MetaField::Bool { key: k, value: v, .. } = f { if *k == key { *v = value; return; } } }
+}
+
+fn set_meta_number(fields: &mut Vec<MetaField>, key: &str, value: f32) {
+    for f in fields.iter_mut() { if let MetaField::Number { key: k, value: v, .. } = f { if *k == key { *v = value; return; } } }
 }

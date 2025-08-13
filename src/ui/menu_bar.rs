@@ -35,6 +35,19 @@ pub fn show_menu_bar(egui_ctx: &Context, editor: &mut LevelEditor) {
                     eprintln!("Failure trying to export json");
                 }
             }
+
+            if ui.button("Import JSON").clicked() {
+                if let Some(path) = rfd::FileDialog::new().add_filter("json", &["json"]).pick_file() {
+                    match std::fs::read_to_string(&path) {
+                        Ok(contents) => {
+                            if let Err(e) = editor.level_import_json(&contents) {
+                                eprintln!("Failed to import json: {}", e);
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to read file: {}", e),
+                    }
+                }
+            }
             
             ui.separator();
             

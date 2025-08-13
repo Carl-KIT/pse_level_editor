@@ -278,4 +278,7 @@ impl LevelEditor {
 
     // Export
     pub fn level_export_json(&self, name: String) -> serde_json::Result<String> { self.level.export_to_json(name, &self.registry) }
+
+    // Import
+    pub fn level_import_json(&mut self, json: &str) -> serde_json::Result<()> { self.level.import_from_json(json, &self.registry) }
 } 

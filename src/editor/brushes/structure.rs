@@ -158,7 +158,9 @@ impl Brush for StructureBrush {
                         level.set_tile(x, y, wall.clone());
                     }
                     // Assign stairs structure to exact cells of shape
-                    level.assign_stairs_with_cells(wall.clone(), &shape);
+
+                    let orientation = stairs_orientation((sx, sy), (ex, ey));
+                    level.assign_stairs_with_cells(wall.clone(), &shape, orientation);
                 }
             }
 
@@ -191,4 +193,16 @@ fn crosses_module_border(level: &Level, cells: &[(usize, usize)]) -> bool {
         }
     }
     false
+}
+
+
+fn stairs_orientation(start: (usize, usize), end: (usize, usize)) -> i32 {
+    if (start.0 < end.0 && start.1 < end.1) {
+        return 1;
+    }
+    else if (start.0 > end.0 && start.1 > end.1) {
+        return 1;
+    }
+
+    return -1;
 }
