@@ -277,5 +277,5 @@ impl LevelEditor {
     pub fn level_width(&self) -> usize { self.level.width() }
 
     // Export
-    pub fn level_export_json(&self, name: String) -> serde_json::Result<String> { self.level.export_to_json() }
+    pub fn level_export_json(&self, name: String) -> serde_json::Result<String> { self.level.export_to_json(name, &self.registry) }
 } 

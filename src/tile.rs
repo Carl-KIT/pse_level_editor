@@ -196,7 +196,7 @@ pub fn default_stairs_metadata_for(_tile_type: TileType) -> Vec<MetaField> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PlatformGroup { Grass, Ground, Wall }
+pub enum PlatformGroup { Grass, Ground, Wall, Ice, Mud }
 
 #[derive(Clone)]
 pub struct TileKind {
@@ -259,6 +259,8 @@ fn infer_platform_group_from_key(key: &str) -> Option<PlatformGroup> {
     if k.contains("grass") { Some(PlatformGroup::Grass) }
     else if k.contains("ground") { Some(PlatformGroup::Ground) }
     else if k.contains("wall") { Some(PlatformGroup::Wall) }
+    else if k.contains("ice") { Some(PlatformGroup::Ice) }
+    else if k.contains("mud") { Some(PlatformGroup::Mud) }
     else { None }
 }
 

@@ -149,6 +149,9 @@ impl Level {
                 let kl = k.to_lowercase();
                 if kl.contains("ground") { Some(PlatformGroup::Ground) }
                 else if kl.contains("wall") { Some(PlatformGroup::Wall) }
+                else if kl.contains("grass") { Some(PlatformGroup::Grass) }
+                else if kl.contains("ice") { Some(PlatformGroup::Ice) }
+                else if kl.contains("mud") { Some(PlatformGroup::Mud) }
                 else { None }
             }
         }
