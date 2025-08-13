@@ -4,6 +4,7 @@ use crate::tile::*;
 
 use egui_macroquad::macroquad::prelude::*;
 use serde::Serialize;
+use serde_json::json;
 mod platform_ext;
 
 // Constants
@@ -413,18 +414,7 @@ struct ExportModule {
     #[serde(rename = "xSpan")]
     x_span: usize,
     #[serde(rename = "gameObjects")]
-    game_objects: Vec<ExportGameObject>,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type")]
-enum ExportGameObject {
-    #[serde(rename = "platform")]
-    Platform { position: Position, size: Size, enabled: bool, mutable: bool },
-    #[serde(rename = "stairs")]
-    Stairs { position: Position, size: usize, enabled: bool, mutable: bool },
-    #[serde(rename = "tile")]
-    Tile { kind: String, position: Position, enabled: bool, mutable: bool, #[serde(skip_serializing_if = "Option::is_none")] object_id: Option<String>, #[serde(skip_serializing_if = "Option::is_none")] powerup: Option<String>, #[serde(skip_serializing_if = "Option::is_none")] speed: Option<f32> },
+    game_objects: Vec<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -434,23 +424,28 @@ struct Position { x: usize, y: usize }
 struct Size { x: usize, y: usize }
 
 impl Level {
-    pub fn export_to_json(&self, name: String) -> serde_json::Result<String> {
+    pub fn export_to_json(&self, name: String, registry: &TileRegistry) -> serde_json::Result<String> {
         let borders = self.module_borders();
         let mut modules: Vec<ExportModule> = Vec::new();
         let mut start_x = 0usize;
         for (i, span) in self.modules.iter().copied().enumerate() {
             let end_x = start_x + span;
-            let mut game_objects: Vec<ExportGameObject> = Vec::new();
+            let mut game_objects: Vec<serde_json::Value> = Vec::new();
 
             // Platforms fully contained within module
             for p in &self.platforms {
                 if p.min_x >= start_x && p.max_x < end_x {
-                    game_objects.push(ExportGameObject::Platform {
-                        position: Position { x: p.min_x, y: p.min_y },
-                        size: Size { x: p.max_x - p.min_x + 1, y: p.max_y - p.min_y + 1 },
-                        enabled: true,
-                        mutable: get_meta_bool(&p.metadata, "mutable", false),
-                    });
+                    // Type should be the platform's tile type display name (e.g., "Wall", "Ground")
+                    let type_name = display_name_for_tile_type(registry, &p.tile_type).unwrap_or_else(|| "Platform".to_string());
+                    let object_id = get_meta_text(&p.metadata, "object_id").unwrap_or_default();
+                    game_objects.push(json!({
+                        "type": type_name,
+                        "position": { "x": p.min_x, "y": p.min_y },
+                        "size": { "x": p.max_x - p.min_x + 1, "y": p.max_y - p.min_y + 1 },
+                        "enabled": true,
+                        "mutable": get_meta_bool(&p.metadata, "mutable", false),
+                        "object_id": object_id,
+                    }));
                 }
             }
 
@@ -458,12 +453,15 @@ impl Level {
             for s in &self.stairs {
                 if s.min_x >= start_x && s.max_x < end_x {
                     let size = (s.max_x - s.min_x + 1).max(s.max_y - s.min_y + 1);
-                    game_objects.push(ExportGameObject::Stairs {
-                        position: Position { x: s.min_x, y: s.min_y },
-                        size,
-                        enabled: true,
-                        mutable: get_meta_bool(&s.metadata, "mutable", false),
-                    });
+                    let object_id = get_meta_text(&s.metadata, "object_id").unwrap_or_default();
+                    game_objects.push(json!({
+                        "type": "stairs",
+                        "position": { "x": s.min_x, "y": s.min_y },
+                        "size": size,
+                        "enabled": true,
+                        "mutable": get_meta_bool(&s.metadata, "mutable", false),
+                        "object_id": object_id,
+                    }));
                 }
             }
 
@@ -473,19 +471,19 @@ impl Level {
                     if self.platform_at(x, y).is_none() && self.stairs_at(x, y).is_none() {
                         let t = &self.tiles[y][x];
                         if let TileType::Custom(k) = &t.tile_type {
-                            let kind = k.clone();
+                            let kind = display_name_for_tile_type(registry, &t.tile_type).unwrap_or_else(|| k.clone());
                             let object_id = get_meta_text(&t.metadata, "object_id");
                             let powerup = get_meta_text(&t.metadata, "powerup");
                             let speed = get_meta_number(&t.metadata, "speed");
-                            game_objects.push(ExportGameObject::Tile {
-                                kind,
-                                position: Position { x, y },
-                                enabled: get_meta_bool(&t.metadata, "enabled", true),
-                                mutable: get_meta_bool(&t.metadata, "mutable", false),
-                                object_id,
-                                powerup,
-                                speed,
-                            });
+                            game_objects.push(json!({
+                                "type": kind,
+                                "position": { "x": x, "y": y },
+                                "enabled": get_meta_bool(&t.metadata, "enabled", true),
+                                "mutable": get_meta_bool(&t.metadata, "mutable", false),
+                                "object_id": object_id.unwrap_or_default(),
+                                "powerup": powerup,
+                                "speed": speed,
+                            }));
                         }
                     }
                 }
@@ -519,4 +517,11 @@ fn get_meta_number(fields: &[MetaField], key: &str) -> Option<f32> {
         if let MetaField::Number { key: k, value, .. } = f { if *k == key { return Some(*value); } }
     }
     None
+}
+
+fn display_name_for_tile_type(registry: &TileRegistry, t: &TileType) -> Option<String> {
+    match t {
+        TileType::Air => Some("Air".to_string()),
+        TileType::Custom(k) => registry.get(k).map(|tk| tk.display_name.clone()),
+    }
 }
