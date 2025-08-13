@@ -1,0 +1,15 @@
+{
+  "name": "abc",
+  "modules": [
+    {
+      "moduleID": 0,
+      "xSpan": 15,
+      "gameObjects": []
+    },
+    {
+      "moduleID": 1,
+      "xSpan": 15,
+      "gameObjects": []
+    }
+  ]
+}

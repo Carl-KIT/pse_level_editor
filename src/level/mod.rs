@@ -402,6 +402,7 @@ impl Level {
 
 #[derive(Serialize)]
 struct ExportLevel {
+    name: String,
     modules: Vec<ExportModule>,
 }
 
@@ -433,7 +434,7 @@ struct Position { x: usize, y: usize }
 struct Size { x: usize, y: usize }
 
 impl Level {
-    pub fn export_to_json(&self) -> serde_json::Result<String> {
+    pub fn export_to_json(&self, name: String) -> serde_json::Result<String> {
         let borders = self.module_borders();
         let mut modules: Vec<ExportModule> = Vec::new();
         let mut start_x = 0usize;
@@ -494,7 +495,7 @@ impl Level {
             start_x = end_x;
         }
 
-        let export = ExportLevel { modules };
+        let export = ExportLevel { name, modules };
         serde_json::to_string_pretty(&export)
     }
 }
