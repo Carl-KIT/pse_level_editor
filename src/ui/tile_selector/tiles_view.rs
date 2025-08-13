@@ -31,6 +31,8 @@ pub fn show_tiles(egui_ctx: &Context, editor: &mut LevelEditor) {
                 } else if key_l.contains("powerup")
                     || key_l.contains("ground")
                     || key_l.contains("wall")
+                    || key_l.contains("ice")
+                    || key_l.contains("mud")
                 {
                     tiles_all.push(item);
                 } else {
