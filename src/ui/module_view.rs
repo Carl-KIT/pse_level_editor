@@ -1,5 +1,5 @@
 use egui_macroquad::egui::{self, Context};
-use crate::{editor::{BrushType, LevelEditor}, tile::{Platform, SelectableMeta, Tile, TileType}};
+use crate::editor::LevelEditor;
 
 
 pub fn show_module_view(egui_ctx: &Context, editor: &mut LevelEditor) {

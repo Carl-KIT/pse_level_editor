@@ -1,6 +1,5 @@
 use egui_macroquad::egui::{self, Context};
-use serde::de;
-use crate::{editor::{BrushType, LevelEditor}, tile::TileType};
+use crate::editor::LevelEditor;
 
 pub fn show_menu_bar(egui_ctx: &Context, editor: &mut LevelEditor) {
     egui::TopBottomPanel::top("menu_bar").show(egui_ctx, |ui| {
@@ -19,7 +18,7 @@ pub fn show_menu_bar(egui_ctx: &Context, editor: &mut LevelEditor) {
                     return;
                 }
 
-                let destination = destination.unwrap();
+                let mut destination = destination.unwrap();
                 let name = destination.file_stem();
 
                 if name.is_none() {
@@ -29,7 +28,12 @@ pub fn show_menu_bar(egui_ctx: &Context, editor: &mut LevelEditor) {
 
                 let name = name.unwrap().to_str().unwrap().to_string();
 
+                if !destination.ends_with(".json") {
+                    destination.set_extension("json");
+                }
+
                 if let Ok(json) = editor.level_export_json(name) {
+                    println!("destination: {:?}", destination);
                     let _ = std::fs::write(destination, json);
                 } else {
                     eprintln!("Failure trying to export json");

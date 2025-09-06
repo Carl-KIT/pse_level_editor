@@ -1,5 +1,5 @@
 use egui_macroquad::egui::{self, Context};
-use crate::{editor::{BrushType, LevelEditor}, tile::{Platform, SelectableMeta, Tile, TileType}};
+use crate::editor::LevelEditor;
 
 pub fn show_inspector(egui_ctx: &Context, editor: &mut LevelEditor) {
     let coords = editor.get_selected_tile_coords();
@@ -29,13 +29,42 @@ pub fn show_inspector(egui_ctx: &Context, editor: &mut LevelEditor) {
             
             // Metadata UI: show structure metadata (platform or stairs) if present, else tile metadata
             if let Some((x, y)) = coords {
-                if let Some(p) = editor.level_mut().platform_at_mut(x, y) {
-                    p.metadata_ui(ui);
-                } else if let Some(s) = editor.level_mut().stairs_at_mut(x, y) {
-                    s.metadata_ui(ui);
-                } else {
-                    let mut_tile = editor.level_mut().get_tile_mut(x, y).unwrap();
-                    mut_tile.metadata_ui(ui);
+                // Check if this is a stairs first, then platform, then regular tile
+                if let Some(stairs) = editor.level().stairs_at(x, y) {
+                    // This is a stairs - show stairs metadata directly
+                    ui.label("Type: Stairs");
+                    ui.label(format!("Size: {} x {}", stairs.max_x - stairs.min_x + 1, stairs.max_y - stairs.min_y + 1));
+                    // Edit stairs metadata directly
+                    if let Some(stairs_mut) = editor.level_mut().stairs_at_mut(x, y) {
+                        for field in &mut stairs_mut.metadata {
+                            field.ui(ui);
+                        }
+                    }
+                } else if let Some(_platform) = editor.level().platform_at(x, y) {
+                    // This is a platform - show platform metadata directly
+                    ui.label("Type: Platform");
+                    // Edit platform metadata directly
+                    if let Some(platform_mut) = editor.level_mut().platform_at_mut(x, y) {
+                        for field in &mut platform_mut.metadata {
+                            field.ui(ui);
+                        }
+                    }
+                } else if let Some(tile) = editor.level().get_tile(x, y) {
+                    // This is a regular tile
+                    let tile_type_string = tile.tile_type.to_string();
+                    if tile_type_string != "air" { // Skip metadata for air tiles
+                        if let Some(tile_type) = editor.tile_type_registry().get(&tile_type_string) {
+                            ui.label(format!("Type: {}", tile_type.display_name()));
+                            // Edit tile metadata directly
+                            if let Some(tile_mut) = editor.level_mut().get_tile_mut(x, y) {
+                                for field in &mut tile_mut.metadata {
+                                    field.ui(ui);
+                                }
+                            }
+                        }
+                    } else {
+                        ui.label("Type: Air (no metadata)");
+                    }
                 }
             }
             

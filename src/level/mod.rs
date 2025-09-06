@@ -4,6 +4,7 @@ use crate::tile::*;
 
 use egui_macroquad::macroquad::prelude::*;
 use serde::Serialize;
+use crate::tile_type_system::MetaField;
 use serde_json::json;
 mod platform_ext;
 
@@ -108,6 +109,10 @@ impl Level {
 
     pub fn set_highlighted_tiles(&mut self, tiles: Vec<(usize, usize)>) {
         self.highlighted_tiles = tiles;
+    }
+
+    pub fn get_highlighted_tiles(&self) -> &Vec<(usize, usize)> {
+        &self.highlighted_tiles
     }
 
     pub fn add_highlighted_tile(&mut self, x: usize, y: usize) {
@@ -234,6 +239,90 @@ impl Level {
         } else { None }
     }
 
+    pub fn draw_legacy(&self) {
+        // Legacy drawing method that works without tile registry
+        // Draw grid
+        let grid_color = Color::new(0.3, 0.3, 0.3, 0.5);
+        let tile_size = 1.0;
+        
+        // Draw vertical lines
+        for x in 0..=self.width {
+            let x_pos = x as f32 * tile_size;
+            draw_line(x_pos, 0.0, x_pos, self.height as f32 * tile_size, 0.05, grid_color);
+        }
+        
+        // Draw horizontal lines
+        for y in 0..=self.height {
+            let y_pos = y as f32 * tile_size;
+            draw_line(0.0, y_pos, self.width as f32 * tile_size, y_pos, 0.05, grid_color);
+        }
+        
+        // Draw tiles
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if let Some(tile) = self.get_tile(x, y) {
+                    let x_pos = x as f32 * tile_size;
+                    let y_pos = y as f32 * tile_size;
+                    
+                    // Draw tile background
+                    let color = match tile.tile_type {
+                        crate::tile::TileType::Air => Color::new(0.9, 0.9, 0.9, 0.3),
+                        crate::tile::TileType::Custom(ref name) => {
+                            match name.as_str() {
+                                "wall" => GRAY,
+                                "ground" => BROWN,
+                                "grass" => GREEN,
+                                "ice" => Color::new(0.5, 0.8, 1.0, 1.0),
+                                "mud" => DARKBROWN,
+                                "bird" => BLUE,
+                                "pig" => PINK,
+                                "beartrap" => BROWN,
+                                "flagpole" => RED,
+                                "grain" => YELLOW,
+                                "grow_powerup" => GREEN,
+                                "oneup" => GREEN,
+                                "redbull" => RED,
+                                "powerup_tile" => YELLOW,
+                                _ => WHITE,
+                            }
+                        }
+                    };
+                    
+                    draw_rectangle(x_pos, y_pos, tile_size, tile_size, color);
+                }
+            }
+        }
+        
+        // Draw platforms
+        for platform in &self.platforms {
+            let x_pos = platform.min_x as f32 * tile_size;
+            let y_pos = platform.min_y as f32 * tile_size;
+            let width = (platform.max_x - platform.min_x + 1) as f32 * tile_size;
+            let height = (platform.max_y - platform.min_y + 1) as f32 * tile_size;
+            
+            draw_rectangle(x_pos, y_pos, width, height, GRAY);
+            draw_rectangle_lines(x_pos, y_pos, width, height, 0.1, DARKGRAY);
+        }
+        
+        // Draw stairs
+        for stairs in &self.stairs {
+            let x_pos = stairs.min_x as f32 * tile_size;
+            let y_pos = stairs.min_y as f32 * tile_size;
+            let width = (stairs.max_x - stairs.min_x + 1) as f32 * tile_size;
+            let height = (stairs.max_y - stairs.min_y + 1) as f32 * tile_size;
+            
+            draw_rectangle(x_pos, y_pos, width, height, GRAY);
+            draw_rectangle_lines(x_pos, y_pos, width, height, 0.1, DARKGRAY);
+        }
+        
+        // Draw highlights
+        for &(x, y) in &self.highlighted_tiles {
+            let x_pos = x as f32 * tile_size;
+            let y_pos = y as f32 * tile_size;
+            draw_rectangle_lines(x_pos, y_pos, tile_size, tile_size, 0.1, YELLOW);
+        }
+    }
+
     pub fn draw(&self, registry: &TileRegistry) {
         // Draw the base level
         for y in 0..self.height {
@@ -327,7 +416,7 @@ impl Level {
         }
         let new_index = self.stairs.len();
         let mut metadata = default_stairs_metadata_for(t.clone());
-        metadata.push(MetaField::Label { label: "Orientation", value: orientation.to_string() });
+        metadata.push(MetaField::Label { label: "Orientation".to_string(), value: orientation.to_string() });
         self.stairs.push(Stairs { tile_type: t.clone(), min_x, min_y, max_x, max_y, metadata });
         for &(x, y) in cells { if x < self.width && y < self.height { self.stairs_map[y][x] = Some(new_index); } }
         new_index
@@ -401,16 +490,24 @@ impl Level {
     }
 } 
 
-// ----- Export (serde) -----
 
-#[derive(Serialize)]
-struct ExportLevel {
+#[derive(Serialize, serde::Deserialize)]
+struct LevelData {
+    #[serde(rename = "levelID")]
     name: String,
-    modules: Vec<ExportModule>,
+    modules: Vec<ModuleData>,
+    #[serde(rename = "textureTheme")]
+    texture_theme: String,
 }
 
-#[derive(Serialize)]
-struct ExportModule {
+impl LevelData {
+    pub fn new(name: String, modules: Vec<ModuleData>) -> Self {
+        Self { name, modules, texture_theme: "default".to_string() }
+    }
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct ModuleData {
     #[serde(rename = "moduleID")]
     module_id: usize,
     #[serde(rename = "xSpan")]
@@ -427,8 +524,8 @@ struct Size { x: usize, y: usize }
 
 impl Level {
     pub fn export_to_json(&self, name: String, registry: &TileRegistry) -> serde_json::Result<String> {
-        let borders = self.module_borders();
-        let mut modules: Vec<ExportModule> = Vec::new();
+        let _borders = self.module_borders();
+        let mut modules: Vec<ModuleData> = Vec::new();
         let mut start_x = 0usize;
         for (i, span) in self.modules.iter().copied().enumerate() {
             let end_x = start_x + span;
@@ -439,14 +536,14 @@ impl Level {
                 if p.min_x >= start_x && p.max_x < end_x {
                     // Type should be the platform's tile type display name (e.g., "Wall", "Ground")
                     let type_name = display_name_for_tile_type(registry, &p.tile_type).unwrap_or_else(|| "Platform".to_string());
-                    let object_id = get_meta_text(&p.metadata, "object_id").unwrap_or_default();
+                    let object_id = get_meta_text(&p.metadata, "objectID").unwrap_or_default();
                     game_objects.push(json!({
                         "type": type_name,
-                        "position": { "x": p.min_x, "y": p.min_y },
+                        "position": { "x": p.min_x - start_x, "y": self.height - 1 - p.max_y },
                         "size": { "x": p.max_x - p.min_x + 1, "y": p.max_y - p.min_y + 1 },
                         "enabled": true,
                         "mutable": get_meta_bool(&p.metadata, "mutable", false),
-                        "object_id": object_id,
+                        "objectID": object_id,
                     }));
                 }
             }
@@ -455,16 +552,16 @@ impl Level {
             for s in &self.stairs {
                 if s.min_x >= start_x && s.max_x < end_x {
                     let size = (s.max_x - s.min_x + 1).max(s.max_y - s.min_y + 1);
-                    let object_id = get_meta_text(&s.metadata, "object_id").unwrap_or_default();
+                    let object_id = get_meta_text(&s.metadata, "objectID").unwrap_or_default();
                     let orientation = get_meta_label(&s.metadata, "Orientation").unwrap_or_else(|| "0".to_string());
                     game_objects.push(json!({
                         "type": "stairs",
-                        "position": { "x": s.min_x, "y": s.min_y },
+                        "position": { "x": s.min_x - start_x, "y": self.height - s.max_y - 2},
                         "size": size,
                         "orientation": orientation,
                         "enabled": true,
                         "mutable": get_meta_bool(&s.metadata, "mutable", false),
-                        "object_id": object_id,
+                        "objectID": object_id,
                     }));
                 }
             }
@@ -476,28 +573,24 @@ impl Level {
                         let t = &self.tiles[y][x];
                         if let TileType::Custom(k) = &t.tile_type {
                             let kind = display_name_for_tile_type(registry, &t.tile_type).unwrap_or_else(|| k.clone());
-                            let object_id = get_meta_text(&t.metadata, "object_id");
-                            let powerup = get_meta_text(&t.metadata, "powerup");
-                            let speed = get_meta_number(&t.metadata, "speed");
+                            let object_id = get_meta_text(&t.metadata, "objectID");
                             game_objects.push(json!({
                                 "type": kind,
-                                "position": { "x": x, "y": y },
+                                "position": { "x": x - start_x, "y": self.height - 1 - y },
                                 "enabled": get_meta_bool(&t.metadata, "enabled", true),
                                 "mutable": get_meta_bool(&t.metadata, "mutable", false),
-                                "object_id": object_id.unwrap_or_default(),
-                                "powerup": powerup,
-                                "speed": speed,
+                                "objectID": object_id.unwrap_or_default(),
                             }));
                         }
                     }
                 }
             }
 
-            modules.push(ExportModule { module_id: i, x_span: span, game_objects });
+            modules.push(ModuleData { module_id: i, x_span: span, game_objects });
             start_x = end_x;
         }
 
-        let export = ExportLevel { name, modules };
+        let export = LevelData { name, modules, texture_theme: "default".to_string() };
         serde_json::to_string_pretty(&export)
     }
 }
@@ -537,18 +630,10 @@ fn get_meta_label(fields: &[MetaField], label: &str) -> Option<String> {
     None
 }
 
-// ----- Import (serde) -----
-
-#[derive(serde::Deserialize)]
-struct ImportLevel { name: Option<String>, modules: Vec<ImportModule> }
-
-#[derive(serde::Deserialize)]
-struct ImportModule { #[serde(rename = "xSpan")] x_span: usize, #[serde(rename = "gameObjects")] game_objects: Vec<serde_json::Value> }
-
 impl Level {
     pub fn import_from_json(&mut self, json_str: &str, registry: &TileRegistry) -> serde_json::Result<()> {
         // Parse
-        let parsed: ImportLevel = serde_json::from_str(json_str)?;
+        let parsed: LevelData = serde_json::from_str(json_str)?;
 
         // Apply modules and resize width
         self.modules.clear();
@@ -569,7 +654,7 @@ impl Level {
                     if obj_type.eq_ignore_ascii_case("stairs") {
                         // stairs
                         if let (Some(pos), Some(size_v)) = (obj.get("position"), obj.get("size")) {
-                            let x = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                            let x = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize + start_x;
                             let y = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                             let size = size_v.as_u64().unwrap_or(0) as usize;
                             let orientation = obj.get("orientation").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
@@ -581,7 +666,7 @@ impl Level {
                                 let start_y = y + i;
                                 for yy in start_y..(y + size) { if cx < self.width && yy < self.height { self.tiles[yy][cx].set_tile_type(t.clone()); cells.push((cx, yy)); } }
                             }
-                            let object_id = obj.get("object_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let object_id = obj.get("objectID").and_then(|v| v.as_str()).map(|s| s.to_string());
                             let idx = self.assign_stairs_with_cells(t.clone(), &cells, orientation);
                             if let Some(oid) = object_id { set_meta_text_label(&mut self.stairs[idx].metadata, "Object ID", oid); }
                             let mutable = obj.get("mutable").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -594,7 +679,7 @@ impl Level {
                             let type_name = obj_type;
                             let t = tile_type_from_display_name(registry, type_name).unwrap_or(TileType::Custom(type_name.to_string()));
                             if let Some(pos) = obj.get("position") {
-                                let px = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                let px = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize + start_x;
                                 let py = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                                 let sx = size.get("x").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
                                 let sy = size.get("y").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
@@ -606,14 +691,12 @@ impl Level {
                             let type_name = obj_type;
                             let t = tile_type_from_display_name(registry, type_name).unwrap_or(TileType::Custom(type_name.to_string()));
                             if let Some(pos) = obj.get("position") {
-                                let x = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                let x = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize + start_x;
                                 let y = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                                 if x < self.width && y < self.height { self.tiles[y][x].set_tile_type(t.clone());
                                     // Apply tile metadata
-                                    if let Some(oid) = obj.get("object_id").and_then(|v| v.as_str()) { set_meta_text(&mut self.tiles[y][x].metadata, "object_id", oid.to_string()); }
+                                    if let Some(oid) = obj.get("objectID").and_then(|v| v.as_str()) { set_meta_text(&mut self.tiles[y][x].metadata, "objectID", oid.to_string()); }
                                     if let Some(mb) = obj.get("mutable").and_then(|v| v.as_bool()) { set_meta_bool(&mut self.tiles[y][x].metadata, "mutable", mb); }
-                                    if let Some(pu) = obj.get("powerup").and_then(|v| v.as_str()) { set_meta_text(&mut self.tiles[y][x].metadata, "powerup", pu.to_string()); }
-                                    if let Some(sp) = obj.get("speed").and_then(|v| v.as_f64()) { set_meta_number(&mut self.tiles[y][x].metadata, "speed", sp as f32); }
                                 }
                             }
                         }
@@ -631,7 +714,7 @@ impl Level {
             if let Some(size) = obj.get("size").and_then(|v| if v.is_object() { Some(v) } else { None }) {
                 let type_name = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if let Some(pos) = obj.get("position") {
-                    let px = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let px = pos.get("x").and_then(|v| v.as_u64()).unwrap_or(0) as usize + start_x;
                     let py = pos.get("y").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                     let sx = size.get("x").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
                     let sy = size.get("y").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
@@ -640,7 +723,7 @@ impl Level {
                     if let Some(t_type) = t_opt {
                         // Check top-left cell's platform
                         if let Some(p) = self.platform_at_mut(px, py) { if p.min_x == px && p.min_y == py && (p.max_x - p.min_x + 1) == sx && (p.max_y - p.min_y + 1) == sy && p.tile_type == t_type {
-                            if let Some(oid) = obj.get("object_id").and_then(|v| v.as_str()) { set_meta_text(&mut p.metadata, "object_id", oid.to_string()); }
+                            if let Some(oid) = obj.get("objectID").and_then(|v| v.as_str()) { set_meta_text(&mut p.metadata, "objectID", oid.to_string()); }
                             if let Some(mb) = obj.get("mutable").and_then(|v| v.as_bool()) { set_meta_bool(&mut p.metadata, "mutable", mb); }
                         } }
                     }

@@ -6,12 +6,13 @@ mod camera;
 mod editor;
 mod ui;
 mod tile;
+mod tile_type_system;
+mod tile_types;
 
 use editor::LevelEditor;
 use ui::UI;
 
-use level::Level;
-use tile::{TileType, Tile};
+// Removed unused imports
 
 // Constants
 const LEVEL_WIDTH: usize = 20;

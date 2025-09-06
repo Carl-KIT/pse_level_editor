@@ -1,1 +1,0 @@
-set_highlighted_tiles

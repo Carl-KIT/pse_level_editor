@@ -34,7 +34,7 @@ impl Brush for SelectorBrush {
         true
     }
 
-    fn on_mouse_release(&mut self, _level: &mut Level) -> bool {
+    fn on_mouse_release(&mut self, _level: &mut Level, _tile: TileType) -> bool {
         // Selector doesn't do anything on release
         true
     }

@@ -1,7 +1,8 @@
 use egui_macroquad::macroquad::prelude::*;
 use egui_macroquad::egui;
 use std::collections::HashMap;
-use std::path::Path;
+// Removed unused import
+use crate::tile_type_system::MetaField;
 
 #[derive(Clone, Debug)]
 pub struct Platform {
@@ -32,61 +33,8 @@ pub trait SelectableMeta {
     fn metadata_ui(&mut self, ui: &mut egui::Ui);
 }
 
-#[derive(Clone, Debug)]
-pub enum MetaField {
-    Number { key: &'static str, label: &'static str, value: f32, min: f32, max: f32 },
-    Text { key: &'static str, label: &'static str, value: String },
-    Bool { key: &'static str, label: &'static str, value: bool, editable: bool },
-    Label { label: &'static str, value: String },
-    Choice { key: &'static str, label: &'static str, options: Vec<&'static str>, selected: usize },
-}
 
-impl MetaField {
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        match self {
-            MetaField::Number { label, value, min, max, .. } => {
-                ui.horizontal(|ui| {
-                    ui.label(*label);
-                    let mut v = *value;
-                    if ui.add(egui::Slider::new(&mut v, *min..=*max)).changed() { *value = v; }
-                });
-            }
-            MetaField::Text { label, value, .. } => {
-                ui.horizontal(|ui| {
-                    ui.label(*label);
-                    let mut buf = value.clone();
-                    if ui.text_edit_singleline(&mut buf).changed() { *value = buf; }
-                });
-            }
-            MetaField::Bool { label, value, editable, .. } => {
-                ui.horizontal(|ui| {
-                    ui.label(*label);
-                    let mut b = *value;
-                    ui.add_enabled(*editable, egui::Checkbox::new(&mut b, ""));
-                    *value = b;
-                });
-            }
-            MetaField::Label { label, value } => {
-                ui.horizontal(|ui| {
-                    ui.label(*label);
-                    ui.label(value.clone());
-                });
-            }
-            MetaField::Choice { label, options, selected, .. } => {
-                ui.horizontal(|ui| {
-                    ui.label(*label);
-                    egui::ComboBox::from_id_source(label.to_string())
-                        .selected_text(options.get(*selected).copied().unwrap_or("-"))
-                        .show_ui(ui, |ui| {
-                            for (i, opt) in options.iter().enumerate() {
-                                if ui.selectable_label(*selected == i, *opt).clicked() { *selected = i; }
-                            }
-                        });
-                });
-            }
-        }
-    }
-}
+// MetaField implementation is now in tile_type_system
 
 
 // Tile type abstraction: keep Air as a special, everything else is dynamic by key
@@ -97,6 +45,15 @@ pub enum TileType {
 }
 
 impl Default for TileType { fn default() -> Self { TileType::Air } }
+
+impl TileType {
+    pub fn to_string(&self) -> String {
+        match self {
+            TileType::Air => "air".to_string(),
+            TileType::Custom(name) => name.clone(),
+        }
+    }
+}
 
 // Complete tile with editable attributes
 #[derive(Clone, Debug)]
@@ -157,21 +114,43 @@ impl SelectableMeta for Stairs {
 pub fn default_tile_metadata_for(tile_type: &TileType) -> Vec<MetaField> {
     let mut fields: Vec<MetaField> = Vec::new();
     // Common fields
-    fields.push(MetaField::Text { key: "object_id", label: "Object ID", value: String::new() });
-    let type_label = match tile_type { TileType::Air => "Air".to_string(), TileType::Custom(k) => k.clone() };
-    fields.push(MetaField::Label { label: "Type", value: type_label });
-    fields.push(MetaField::Bool { key: "enabled", label: "Enabled", value: true, editable: false });
-    fields.push(MetaField::Bool { key: "mutable", label: "Mutable", value: false, editable: true });
+    fields.push(MetaField::Text { 
+        key: "objectID".to_string(), 
+        label: "Object ID".to_string(), 
+        value: String::new(),
+        editable: true,
+    });
+    let type_label = match tile_type { 
+        TileType::Air => "Air".to_string(), 
+        TileType::Custom(k) => k.clone() 
+    };
+    fields.push(MetaField::Label { 
+        label: "type".to_string(), 
+        value: type_label 
+    });
+    fields.push(MetaField::Bool { 
+        key: "enabled".to_string(), 
+        label: "Enabled".to_string(), 
+        value: true, 
+        editable: false,
+    });
+    fields.push(MetaField::Bool { 
+        key: "mutable".to_string(), 
+        label: "Mutable".to_string(), 
+        value: false, 
+        editable: true,
+    });
 
     // Special-case: powerup tile
     if let TileType::Custom(k) = tile_type {
         let kl = k.to_lowercase();
         if kl.contains("powerup") {
-            fields.push(MetaField::Text { key: "powerup", label: "Powerup", value: String::new() });
-        }
-        // Special-case: pig and bird speed
-        if kl.contains("pig") || kl.contains("bird") {
-            fields.push(MetaField::Number { key: "speed", label: "Speed", value: 1.0, min: 0.0, max: 10.0 });
+            fields.push(MetaField::Text { 
+                key: "collectableClass".to_string(), 
+                label: "Collectable Class".to_string(), 
+                value: String::new(),
+                editable: true,
+            });
         }
     }
     fields
@@ -179,19 +158,55 @@ pub fn default_tile_metadata_for(tile_type: &TileType) -> Vec<MetaField> {
 
 pub fn default_platform_metadata_for(_tile_type: TileType) -> Vec<MetaField> {
     vec![
-        MetaField::Text { key: "object_id", label: "Object ID", value: String::new() },
-        MetaField::Label { label: "Type", value: "Platform".to_string() },
-        MetaField::Bool { key: "enabled", label: "Enabled", value: true, editable: false },
-        MetaField::Bool { key: "mutable", label: "Mutable", value: false, editable: true },
+        MetaField::Text { 
+            key: "objectID".to_string(), 
+            label: "Object ID".to_string(), 
+            value: String::new(),
+            editable: true,
+        },
+        MetaField::Label { 
+            label: "type".to_string(), 
+            value: "Platform".to_string() 
+        },
+        MetaField::Bool { 
+            key: "enabled".to_string(), 
+            label: "Enabled".to_string(), 
+            value: true, 
+            editable: false,
+        },
+        MetaField::Bool { 
+            key: "mutable".to_string(), 
+            label: "Mutable".to_string(), 
+            value: false, 
+            editable: true,
+        },
     ]
 }
 
 pub fn default_stairs_metadata_for(_tile_type: TileType) -> Vec<MetaField> {
     vec![
-        MetaField::Text { key: "object_id", label: "Object ID", value: String::new() },
-        MetaField::Label { label: "Type", value: "Stairs".to_string() },
-        MetaField::Bool { key: "enabled", label: "Enabled", value: true, editable: false },
-        MetaField::Bool { key: "mutable", label: "Mutable", value: false, editable: true },
+        MetaField::Text { 
+            key: "objectID".to_string(), 
+            label: "Object ID".to_string(), 
+            value: String::new(),
+            editable: true,
+        },
+        MetaField::Label { 
+            label: "type".to_string(), 
+            value: "Stairs".to_string() 
+        },
+        MetaField::Bool { 
+            key: "enabled".to_string(), 
+            label: "Enabled".to_string(), 
+            value: true, 
+            editable: false,
+        },
+        MetaField::Bool { 
+            key: "mutable".to_string(), 
+            label: "Mutable".to_string(), 
+            value: false, 
+            editable: true,
+        },
     ]
 }
 
